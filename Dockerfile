@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies needed for OCR and others
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 libsm6 libxext6 libxrender-dev \
     poppler-utils tesseract-ocr libgl1-mesa-glx \
@@ -17,8 +17,8 @@ COPY . /app/
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Expose the dynamic port Railway provides
+# Expose port 8000 (Django default, but Railway will override with $PORT)
 EXPOSE 8000
 
-# Run Gunicorn
-CMD ["gunicorn", "origin_underwriter.wsgi:application", "--bind", "0.0.0.0:${PORT}"]
+# Final Run Command — Fixes $PORT issue
+CMD ["sh", "-c", "gunicorn origin_underwriter.wsgi:application --bind 0.0.0.0:$PORT"]
