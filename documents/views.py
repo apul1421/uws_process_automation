@@ -9,9 +9,12 @@ import os
 from .models import CustomerDocumentUpload, PageAnalysis
 from .serializers import CustomerDocumentUploadSerializer
 from .utils import (
-    split_pdf_into_pages, easyocr_text_from_pdf, paddle_ocr_text_from_pdf,
-    classify_text_with_llm, merge_pdfs, check_page_quality, is_blurry, is_blank,
-    check_ocr_completeness, llm_extract_fields_with_gemini, detect_cross_document_anomalies,
+    split_pdf_into_pages,
+    easyocr_text_from_pdf,
+    merge_pdfs,
+    check_page_quality,
+    check_ocr_completeness,
+    detect_cross_document_anomalies,
     llm_full_page_analysis
 )
 
@@ -32,7 +35,7 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
 
         split_pages = split_pdf_into_pages(original_pdf_path, output_folder)
 
-        # New logic: OCR + Full Gemini analysis once
+        # OCR + LLM extraction
         for idx, page_path in enumerate(split_pages):
             extracted_text = easyocr_text_from_pdf(page_path)
             analysis = llm_full_page_analysis(extracted_text)
@@ -72,9 +75,6 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="ocr-check")
     def ocr_check(self, request, pk=None):
-        """
-        Fetch OCR missing fields from pre-saved PageAnalysis instead of re-running OCR.
-        """
         try:
             document = self.get_object()
             pages = document.pages.all()
@@ -100,9 +100,6 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="anomaly-check")
     def anomaly_check(self, request, pk=None):
-        """
-        Perform anomaly detection from pre-saved extracted fields.
-        """
         try:
             document = self.get_object()
             pages = document.pages.all()
@@ -128,9 +125,6 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"], url_path="field-extraction")
     def field_extraction(self, request, pk=None):
-        """
-        Fetch detailed field extraction with confidence scores from pre-saved analysis.
-        """
         try:
             document = self.get_object()
             pages = document.pages.all()

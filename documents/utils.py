@@ -2,7 +2,7 @@ import fitz  # PyMuPDF
 import os
 import cv2
 import numpy as np
-import pytesseract
+# import pytesseract
 import re
 import requests
 import json
@@ -12,7 +12,7 @@ import google.generativeai as genai
 from pdf2image import convert_from_path
 from django.conf import settings
 from rapidfuzz import fuzz
-from paddleocr import PaddleOCR
+# from paddleocr import PaddleOCR
 from PIL import Image, ImageFile
 from datetime import datetime
 
@@ -30,12 +30,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 # --- OCR Engines ---
-ocr_engine = PaddleOCR(
-    use_angle_cls=True,
-    lang='en',
-    det_db_box_thresh=0.5,
-    use_gpu=False
-)
+#ocr_engine = PaddleOCR(
+#    use_angle_cls=True,
+#    lang='en',
+#    det_db_box_thresh=0.5,
+#    use_gpu=False
+#)
 easyocr_reader = easyocr.Reader(['en'])
 
 # --- Utility Functions ---
@@ -72,17 +72,17 @@ def easyocr_text_from_pdf(pdf_path):
 
     return full_text
 
-def paddle_ocr_text_from_pdf(pdf_path):
-    pages = convert_from_path(pdf_path, dpi=300)
-    full_text = ""
-    for idx, page in enumerate(pages):
-        temp_path = f"temp_page_{idx}.jpg"
-        page.save(temp_path)
-        result = ocr_engine.ocr(temp_path, cls=True)
-        for line in result[0]:
-            text_line = line[1][0]
-            full_text += text_line + "\n"
-    return full_text
+#def paddle_ocr_text_from_pdf(pdf_path):
+#    pages = convert_from_path(pdf_path, dpi=300)
+#   full_text = ""
+#    for idx, page in enumerate(pages):
+#        temp_path = f"temp_page_{idx}.jpg"
+#        page.save(temp_path)
+#        result = ocr_engine.ocr(temp_path, cls=True)
+#        for line in result[0]:
+#            text_line = line[1][0]
+#            full_text += text_line + "\n"
+#    return full_text
 
 def merge_pdfs(page_paths, output_path):
     merged_doc = fitz.open()
