@@ -2,8 +2,17 @@ services:
   - type: web
     name: origin-underwriter
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn origin_underwriter.wsgi:application
+    plan: starter  # (or 'free' if you're using free plan)
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: gunicorn origin_underwriter.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --threads 2 --timeout 120
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: origin_underwriter.settings
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: HUGGINGFACE_API_TOKEN
+        sync: false  # <-- secure API key
+      - key: GEMINI_API_KEY
+        sync: false  # <-- secure API key
