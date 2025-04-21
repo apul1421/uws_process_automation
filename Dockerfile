@@ -1,17 +1,24 @@
-# Step 1: Use official Python image
+# Use official Python image
 FROM python:3.11-slim
 
-# Step 2: Set working directory
+# Set working directory
 WORKDIR /app
 
-# Step 3: Copy all project files to /app folder inside container
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    poppler-utils tesseract-ocr libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
 COPY . /app/
 
-# Step 4: Install latest pip
+# Install Python dependencies
 RUN pip install --upgrade pip
-
-# Step 5: Install all required packages
 RUN pip install -r requirements.txt
 
-# Step 6: Run the Django app with Gunicorn
-CMD ["gunicorn", "origin_underwriter.wsgi:application", "--bind", "0.0.0.0:8000"]
+# Expose the dynamic port Railway provides
+EXPOSE 8000
+
+# Run Gunicorn
+CMD ["gunicorn", "origin_underwriter.wsgi:application", "--bind", "0.0.0.0:${PORT}"]
