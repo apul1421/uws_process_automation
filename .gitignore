@@ -1,0 +1,30 @@
+# Virtual environment
+env/
+venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django specific
+db.sqlite3
+/staticfiles/
+/media/
+/uploads/
+
+# VSCode settings
+.vscode/
+
+# Environment Variables
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Render generated folders
+staticfiles/

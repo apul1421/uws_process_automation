@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: origin-underwriter
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn origin_underwriter.wsgi:application
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: origin_underwriter.settings
