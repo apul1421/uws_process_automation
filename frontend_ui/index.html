@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Origin Underwriter Dashboard</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="style.css">
+
+  <style>
+    body {
+      background-color: #f8f9fa;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .sidebar {
+      background-color: #343a40;
+      color: white;
+      padding: 20px;
+      height: 100vh;
+    }
+
+    .sidebar h4, .sidebar h5 {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+
+    .sidebar input[type="file"] {
+      margin-top: 10px;
+    }
+
+    .sidebar button {
+      margin-top: 10px;
+      width: 100%;
+      font-weight: 600;
+    }
+
+    #uploadedFilesList .list-group-item {
+      background-color: transparent;
+      color: white;
+      border: none;
+      transition: background-color 0.3s ease;
+    }
+
+    #uploadedFilesList .list-group-item:hover {
+      background-color: #495057;
+      cursor: pointer;
+    }
+
+    /* Tabs */
+    .nav-tabs .nav-link {
+      font-weight: 600;
+      color: #495057;
+    }
+
+    .nav-tabs .nav-link.active {
+      background-color: #0d6efd;
+      color: white;
+    }
+
+    /* Content inside tabs */
+    .tab-content {
+      min-height: 400px;
+      background: #ffffff;
+      border-radius: 5px;
+      color: #212529; /* Make text properly visible */
+      padding: 20px;
+    }
+
+    /* Spinner */
+    .loading-spinner {
+      text-align: center;
+      margin-top: 50px;
+    }
+
+    .loading-spinner::after {
+      content: '⏳ Loading...';
+      font-size: 20px;
+      color: #555;
+    }
+
+    /* Fields styling */
+    .field-present {
+      color: #198754; /* Green */
+      font-weight: 600;
+    }
+
+    .field-missing {
+      color: #dc3545; /* Red */
+      font-weight: 600;
+    }
+
+    /* List tick styles */
+    .green-tick {
+      color: #28a745;
+      font-weight: bold;
+    }
+
+    .red-cross {
+      color: #dc3545;
+      font-weight: bold;
+    }
+
+    /* Section Headings inside Tab */
+    .mb-4 h5 {
+      color: #0d6efd;
+      font-weight: 600;
+    }
+
+    h2 {
+      font-weight: bold;
+      color: #0d6efd;
+    }
+
+    /* Tables */
+    table {
+      background: white;
+    }
+    .table th, .table td {
+      vertical-align: middle;
+    }
+  </style>
+
+</head>
+<body>
+
+<div class="container-fluid">
+  <div class="row vh-100">
+
+    <!-- Sidebar -->
+    <div class="col-2 sidebar d-flex flex-column">
+      <h4>Upload Documents</h4>
+      <form id="uploadForm" class="mt-3" enctype="multipart/form-data">
+        <input type="file" id="fileInput" name="file" class="form-control mb-2" accept=".pdf" required>
+        <button type="submit" id="uploadBtn" class="btn btn-primary w-100">Upload & Process</button>
+      </form>
+      <div id="uploadStatus" class="mt-3 small text-center"></div>
+
+      <hr class="text-white my-4">
+
+      <h5>Document Status</h5>
+      <ul id="uploadedFilesList" class="list-group list-group-flush overflow-auto" style="max-height: 300px;">
+        <!-- Populated dynamically -->
+      </ul>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div class="col-10 p-4">
+      <h2 class="mb-4">📄 Document Analysis Dashboard</h2>
+
+      <!-- Tabs -->
+      <ul class="nav nav-tabs" id="resultTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="anomaly-tab" data-bs-toggle="tab" data-bs-target="#anomaly" type="button" role="tab">Anomaly Detection</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="ocr-tab" data-bs-toggle="tab" data-bs-target="#ocr" type="button" role="tab">OCR Check</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="field-tab" data-bs-toggle="tab" data-bs-target="#field" type="button" role="tab">Field Extraction</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Document Quality</button>
+        </li>
+      </ul>
+
+      <!-- Tabs Content -->
+      <div class="tab-content p-4 border border-top-0 bg-white" id="resultContent">
+        <div class="tab-pane fade show active" id="anomaly" role="tabpanel" aria-labelledby="anomaly-tab">
+          <div id="anomalyContent"></div>
+        </div>
+        <div class="tab-pane fade" id="ocr" role="tabpanel" aria-labelledby="ocr-tab">
+          <div id="ocrContent"></div>
+        </div>
+        <div class="tab-pane fade" id="field" role="tabpanel" aria-labelledby="field-tab">
+          <div id="fieldContent"></div>
+        </div>
+        <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
+          <div id="qualityContent"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Bootstrap Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Custom JS -->
+<script src="script.js"></script>
+
+</body>
+</html>

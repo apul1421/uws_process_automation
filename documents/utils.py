@@ -16,7 +16,6 @@ from rapidfuzz import fuzz
 from PIL import Image, ImageFile
 from datetime import datetime
 
-
 # Allow loading truncated images
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
