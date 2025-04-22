@@ -234,10 +234,20 @@ Document Text:
         print(f"Error in Gemini LLM extraction: {e}")
         return {}
 
-# ---------- Anomaly Detection ----------
 
+# ---------- Anomaly Detection (updated) ----------
 def detect_cross_document_anomalies(extracted_data):
     anomalies = []
+
+    # For Inter Document Checks (ticks and crosses)
+    inter_document_checks_result = {
+        "Employee Name (At least 2 words)": True,
+        "Employer Name Present": True,
+        "Gross Pay Present": True,
+        "Address Present": True,
+        "Tax/NI Deductions Present": True,
+        "Minimum Payslips Uploaded": True,
+    }
 
     names = []
     employers = []
@@ -257,6 +267,7 @@ def detect_cross_document_anomalies(extracted_data):
     gross_pay_sources = []
 
     payslip_tax_present = False
+    payslip_found = False
 
     print("\n\n====== STARTING ANOMALY CHECK ======\n")
 
@@ -267,7 +278,6 @@ def detect_cross_document_anomalies(extracted_data):
         print(f"--- Extracting Fields from {doc_type} ---")
         print(json.dumps(fields, indent=2))
 
-        # Normalize extracted field names
         standardized_fields = {}
         for key, value in fields.items():
             key_lower = key.strip().lower()
@@ -286,7 +296,7 @@ def detect_cross_document_anomalies(extracted_data):
                 standardized_fields["net_pay"] = value
             elif "gross monthly income" in key_lower or "gross pay" in key_lower:
                 standardized_fields["gross_pay"] = value
-            elif "monthly deposits" in key_lower or "salary" in key_lower:
+            elif "monthly deposits" in key_lower:
                 standardized_fields["bank_salary_credit"] = value
             elif "annual salary" in key_lower:
                 standardized_fields["contract_annual_salary"] = value
@@ -297,7 +307,32 @@ def detect_cross_document_anomalies(extracted_data):
             elif "date of birth" in key_lower:
                 standardized_fields["dob"] = value
 
-        # Now extract standardized fields
+        # 🔥 If it's a Payslip, perform Inter Document Checks
+        if 'payslip' in doc_type.lower():
+            payslip_found = True
+
+            # Inter document rules
+            emp_name = standardized_fields.get("employee", "")
+            if not emp_name or len(emp_name.split()) < 2:
+                inter_document_checks_result["Employee Name (At least 2 words)"] = False
+
+            emp_company = standardized_fields.get("employer", "")
+            if not emp_company:
+                inter_document_checks_result["Employer Name Present"] = False
+
+            gross_pay = standardized_fields.get("gross_pay", "")
+            if not gross_pay:
+                inter_document_checks_result["Gross Pay Present"] = False
+
+            address = standardized_fields.get("address", "")
+            if not address or address.lower() == "null":
+                inter_document_checks_result["Address Present"] = False
+
+            tax_deductions = standardized_fields.get("tax_deductions", "")
+            if not tax_deductions or tax_deductions.lower() == "not found":
+                inter_document_checks_result["Tax/NI Deductions Present"] = False
+
+        # Standardized field extraction
         name = standardized_fields.get("employee")
         employer = standardized_fields.get("employer")
         address = standardized_fields.get("address")
@@ -315,7 +350,7 @@ def detect_cross_document_anomalies(extracted_data):
         if employer:
             employers.append(employer.lower())
             employer_sources.append(doc_type)
-        if address:
+        if address and address.lower() != "null":
             addresses.append(address.lower())
             address_sources.append(doc_type)
         if net_pay:
@@ -329,7 +364,7 @@ def detect_cross_document_anomalies(extracted_data):
                 gross_pays.append(cleaned_gross)
                 gross_pay_sources.append(doc_type)
         if salary_credit:
-            cleaned_credit = clean_salary_value(salary_credit)
+            cleaned_credit = extract_latest_salary(salary_credit)
             if cleaned_credit is not None:
                 bank_salary_credits.append(cleaned_credit)
                 salary_sources.append(doc_type)
@@ -342,15 +377,19 @@ def detect_cross_document_anomalies(extracted_data):
             if salary_value is not None:
                 contract_salaries.append(salary_value)
 
-        if tax_deductions and tax_deductions != "Not found":
+        if tax_deductions and tax_deductions.lower() != "not found":
             payslip_tax_present = True
 
-        if doc_type.lower() == 'p60' and dob:
+        if 'p60' in doc_type.lower() and dob:
             try:
                 parsed_date = datetime.strptime(dob, "%d.%m.%Y")
                 p60_dates.append(parsed_date)
-            except Exception as e:
+            except Exception:
                 pass
+
+    # === Minimum Payslip Check ===
+    if not payslip_found:
+        inter_document_checks_result["Minimum Payslips Uploaded"] = False
 
     print("\n====== Aggregated Data ======")
     print(f"Names: {names}")
@@ -361,92 +400,105 @@ def detect_cross_document_anomalies(extracted_data):
     print(f"Bank Credits: {bank_salary_credits}")
     print(f"Contract Salaries: {contract_salaries}")
     print(f"P60 Incomes: {p60_incomes}")
-    print(f"P60 Dates: {p60_dates}")
     print("====== End Aggregated Data ======\n")
 
-    # --- Anomaly Checks ---
+    # === INTRA DOCUMENT (Cross document comparisons) ===
 
     # Name Consistency
     if names:
+        base = names[0]
         for idx, other in enumerate(names[1:], start=1):
-            similarity = fuzz.partial_ratio(names[0], other)
-            print(f"Name similarity: {names[0]} <-> {other} = {similarity}")
+            similarity = fuzz.partial_ratio(base, other)
+            print(f"Name similarity: {base} <-> {other} = {similarity}")
             if similarity < 90:
-                anomalies.append(f"Mismatch in Customer Name between {name_sources[0]} and {name_sources[idx]}.")
+                anomalies.append({
+                    "severity": "High",
+                    "type": "Name Mismatch",
+                    "details": f"{name_sources[0]} vs {name_sources[idx]}: {base} <-> {other}"
+                })
 
     # Employer Consistency
     if employers:
+        base = employers[0]
         for idx, other in enumerate(employers[1:], start=1):
-            similarity = fuzz.partial_ratio(employers[0], other)
-            print(f"Employer similarity: {employers[0]} <-> {other} = {similarity}")
+            similarity = fuzz.partial_ratio(base, other)
+            print(f"Employer similarity: {base} <-> {other} = {similarity}")
             if similarity < 90:
-                anomalies.append(f"Mismatch in Employer Name between {employer_sources[0]} and {employer_sources[idx]}.")
+                anomalies.append({
+                    "severity": "Medium",
+                    "type": "Employer Mismatch",
+                    "details": f"{employer_sources[0]} vs {employer_sources[idx]}: {base} <-> {other}"
+                })
 
     # Address Consistency
     if addresses:
+        base = addresses[0]
         for idx, other in enumerate(addresses[1:], start=1):
-            similarity = fuzz.partial_ratio(addresses[0], other)
-            print(f"Address similarity: {addresses[0]} <-> {other} = {similarity}")
+            if not base or base == "null" or not other or other == "null":
+                continue
+            similarity = fuzz.partial_ratio(base, other)
+            print(f"Address similarity: {base} <-> {other} = {similarity}")
             if similarity < 80:
-                anomalies.append(f"Mismatch in Address between {address_sources[0]} and {address_sources[idx]}.")
+                anomalies.append({
+                    "severity": "Medium",
+                    "type": "Address Mismatch",
+                    "details": f"{address_sources[0]} vs {address_sources[idx]}: {base} <-> {other}"
+                })
 
     # Net Pay vs Bank Salary Credit
     if net_pays and bank_salary_credits:
-        for idx, net in enumerate(net_pays):
-            matched = False
-            for jdx, credit in enumerate(bank_salary_credits):
-                # Only consider reasonable salary credits
-                if 500 <= credit <= 10000:
-                    if abs(net - credit) <= 10:  # tolerance 10 GBP
-                        matched = True
-                    else:
-                        anomalies.append(
-                            f"Mismatch: Net Pay {net} from {net_pay_sources[idx]} vs Bank Credit {credit} from {salary_sources[jdx]}."
-                        )
-            if not matched:
-                anomalies.append(f"No matching salary credit found in Bank Statement for Net Pay {net} from {net_pay_sources[idx]}.")
+        for net in net_pays:
+            matches = [credit for credit in bank_salary_credits if abs(net - credit) <= 10]
+            if not matches:
+                anomalies.append({
+                    "severity": "Medium",
+                    "type": "Salary Mismatch",
+                    "details": f"Net Pay {net} (Payslip) vs Bank Credits {','.join(map(str, bank_salary_credits))}"
+                })
 
     # Gross Pay vs Contract Salary
     if gross_pays and contract_salaries:
-        for idx, gross in enumerate(gross_pays):
+        for gross in gross_pays:
             for salary in contract_salaries:
                 diff = abs(gross * 12 - salary)
-                print(f"Gross * 12: {gross*12} vs Contract Salary: {salary}, Diff={diff}")
+                print(f"Gross *12: {gross*12} vs Contract Salary: {salary}, Diff={diff}")
                 if diff > 200:
-                    anomalies.append(f"Gross *12 from {gross_pay_sources[idx]} does not match Contract Annual Salary.")
+                    anomalies.append({
+                        "severity": "Medium",
+                        "type": "Gross Salary Mismatch",
+                        "details": "Gross *12 from Payslip does not match Contract Salary"
+                    })
 
     # Gross Pay vs P60 Income
     if gross_pays and p60_incomes:
-        for idx, gross in enumerate(gross_pays):
-            for p60_income in p60_incomes:
-                diff = abs(gross * 12 - p60_income)
-                print(f"Gross * 12: {gross*12} vs P60 Income: {p60_income}, Diff={diff}")
+        for gross in gross_pays:
+            for income in p60_incomes:
+                diff = abs(gross * 12 - income)
+                print(f"Gross *12: {gross*12} vs P60 Income: {income}, Diff={diff}")
                 if diff > 200:
-                    anomalies.append(f"Gross *12 from {gross_pay_sources[idx]} does not match P60 Annual Income.")
+                    anomalies.append({
+                        "severity": "Medium",
+                        "type": "P60 Salary Mismatch",
+                        "details": "Gross *12 from Payslip does not match P60 Income"
+                    })
 
-    # Tax Deductions
-    print(f"Payscale Tax Present: {payslip_tax_present}")
-    if not payslip_tax_present:
-        anomalies.append("Tax/NI Deductions not found on Payslip.")
-
-    # P60 recency
+    # P60 Age Check
     if p60_dates:
         latest_p60 = max(p60_dates)
         diff_days = (datetime.now() - latest_p60).days
         print(f"P60 Latest Date: {latest_p60}, Age (days): {diff_days}")
         if diff_days > 400:
-            anomalies.append("P60 document is older than 12 months.")
+            anomalies.append({
+                "severity": "Medium",
+                "type": "P60 Expired",
+                "details": "P60 document is older than 12 months"
+            })
 
-    # Large suspicious salary credits
-    for idx, credit in enumerate(bank_salary_credits):
-        if credit > 10000:  # annual income wrongly tagged as salary
-            anomalies.append(f"Unusually large salary credit ({credit}) detected from {salary_sources[idx]}. Please review manually.")
-
-    print("\n====== FINAL ANOMALIES DETECTED ======")
+    print("\n====== FINAL STRUCTURED ANOMALIES ======")
     print(json.dumps(anomalies, indent=2))
     print("====== END ======\n")
 
-    return anomalies
+    return inter_document_checks_result, anomalies
 
 def llm_full_page_analysis(document_text):
     """
@@ -463,26 +515,26 @@ a) Full name
 b) Date of birth
 c) Passport/Driving License number
 d) Expiry date
-e) Address
+e) Address (Residential Address only, if available; do not extract Place of Birth))
 2.2 Payslip
 a) Employer name
 b) Employee name
 c) Gross monthly income
 d) Net monthly income
 e) Tax/NI deductions
-f) Address
+f) Address (Residential Address of employee only)
 2.3  P60:
 a) Annual gross income
 b) Total tax paid
 c) Employee name
 d) Employer name
-e) Address
+e) Address (Residential Address of employee only)
 2.4 Bank Statements
 a) Account holder name
 b) Monthly deposits (income/Salary)
-c) Monthly expenses (Summation of expenses for every month)
+c) Monthly expenses (Summation of expenses for every month like Jan:45 Feb:55 )
 d) Overdraft usage
-e) Address
+e) Address (Residential Address of employee and not Employer's office address)
 2.5 Contract of Employement
 a) Employee name
 b) Employer name
@@ -533,7 +585,6 @@ Document Text:
         return {}
     
     # ---------- Salary and Amount Cleaning ----------
-
 def clean_salary_value(value):
     """
     Clean and extract a float salary from noisy OCR extracted text.
@@ -555,3 +606,106 @@ def clean_salary_value(value):
     except Exception as e:
         print(f"Error parsing salary: {value} -> {e}")
         return None
+    
+def extract_latest_salary(deposits_str):
+    """
+    Extract latest month salary from monthly deposit string like 'Jan:2630.00, Feb:2630.00, Mar:2630.00'.
+    """
+    if not deposits_str:
+        return None
+    try:
+        deposits = deposits_str.lower().split(',')
+        if not deposits:
+            return None
+        last_entry = deposits[-1].strip()
+        amount = last_entry.split(':')[-1].strip()
+        return clean_salary_value(amount)
+    except Exception as e:
+        print(f"Error parsing monthly deposits: {e}")
+        return None
+    
+def check_payslip_rules(payslip_fields, extracted_data):
+    anomalies = []
+    
+    employee_name = payslip_fields.get("Employee Name") or payslip_fields.get("Employee name")
+    employer_name = payslip_fields.get("Employer Name") or payslip_fields.get("Employer name")
+    gross_income = payslip_fields.get("Gross monthly income") or payslip_fields.get("Gross Pay")
+    net_income = payslip_fields.get("Net monthly income") or payslip_fields.get("Net Pay")
+    tax_deductions = payslip_fields.get("Tax/NI deductions") or payslip_fields.get("Tax deductions")
+    address = payslip_fields.get("Address")
+    ytd_income = payslip_fields.get("YTD Income")  # Optional for future
+    pay_date = payslip_fields.get("Pay Date")  # Optional for future
+
+    # 1. Employee Name checks
+    if not employee_name or len(employee_name.split()) < 2:
+        anomalies.append({
+            "severity": "High",
+            "type": "Employee Name Missing or Invalid",
+            "details": "Employee name must contain at least two words (first and last name)."
+        })
+    
+    # Cross-verify name with ID Proof
+    id_name = None
+    for doc_type, fields in extracted_data.items():
+        if 'id proof' in doc_type.lower() or 'passport' in doc_type.lower():
+            id_name = fields.get("Full name")
+            break
+    if employee_name and id_name:
+        similarity = fuzz.partial_ratio(employee_name.lower(), id_name.lower())
+        if similarity < 90:
+            anomalies.append({
+                "severity": "High",
+                "type": "Name Mismatch",
+                "details": f"Employee name on Payslip ({employee_name}) does not match ID Proof ({id_name})."
+            })
+
+    # 2. Employer Name checks
+    if not employer_name:
+        anomalies.append({
+            "severity": "High",
+            "type": "Employer Name Missing",
+            "details": "Employer name not found on payslip."
+        })
+
+    else:
+        employer_match_found = False
+        for doc_type, fields in extracted_data.items():
+            if 'contract' in doc_type.lower() or 'p60' in doc_type.lower():
+                doc_employer = fields.get("Employer Name") or fields.get("Employer name")
+                if doc_employer:
+                    similarity = fuzz.partial_ratio(employer_name.lower(), doc_employer.lower())
+                    if similarity >= 90:
+                        employer_match_found = True
+                        break
+        if not employer_match_found:
+            anomalies.append({
+                "severity": "High",
+                "type": "Employer Mismatch",
+                "details": "Employer name on Payslip does not match with other documents."
+            })
+
+    # 3. Gross Pay must be present
+    if not gross_income:
+        anomalies.append({
+            "severity": "High",
+            "type": "Gross Income Missing",
+            "details": "Gross monthly income not found on payslip."
+        })
+
+    # 4. Address presence
+    if not address or address.lower() == "null":
+        anomalies.append({
+            "severity": "Medium",
+            "type": "Address Missing",
+            "details": "Address not found on Payslip."
+        })
+
+    # 5. Tax/NI deductions must be present
+    if not tax_deductions or tax_deductions.lower() == "null":
+        anomalies.append({
+            "severity": "High",
+            "type": "Tax Deductions Missing",
+            "details": "Tax/NI deductions not found on Payslip."
+        })
+
+    return anomalies

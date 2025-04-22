@@ -182,6 +182,7 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    
     @action(detail=True, methods=["get"], url_path="anomaly-check")
     def anomaly_check(self, request, pk=None):
         try:
@@ -193,12 +194,16 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
                 doc_type = page.document_type or f"unknown_page_{page.page_number}"
                 extracted_data[doc_type] = page.extracted_fields or {}
 
-            anomalies = detect_cross_document_anomalies(extracted_data)
+            # === 🔥 New split here ===
+            inter_document_checks_result, intra_document_anomalies = detect_cross_document_anomalies(extracted_data)
+
+            main_document_type = pages.first().document_type if pages.exists() else "Unknown"
 
             return Response({
                 "document_id": document.id,
-                "anomalies_detected": anomalies,
-                "extracted_fields": extracted_data
+                "document_type": main_document_type,
+                "inter_document_checks": inter_document_checks_result,
+                "intra_document_anomalies": intra_document_anomalies,
             }, status=status.HTTP_200_OK)
 
         except Exception as e:

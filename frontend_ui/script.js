@@ -117,28 +117,70 @@ async function fetchQualityReport() {
   renderQualityReport(data);
 }
 
-// Render Anomalies
 function renderAnomalies(data) {
-  const container = document.getElementById("anomalyContent");
-  container.innerHTML = "";
-
-  if (!data.anomalies_detected || data.anomalies_detected.length === 0) {
-    container.innerHTML = "<p class='text-success'>✅ No anomalies detected!</p>";
-    return;
+    const container = document.getElementById("anomalyContent");
+    container.innerHTML = "";
+  
+    const { document_type, inter_document_checks, intra_document_anomalies } = data;
+  
+    // === DOCUMENT NAME Heading ===
+    const docHeading = document.createElement("h4");
+    docHeading.className = "mb-3";
+    docHeading.innerHTML = `📄 <strong>Document:</strong> ${document_type || "Unknown"}`;
+    container.appendChild(docHeading);
+  
+    // === INTER DOCUMENT CHECKS ===
+    const interHeading = document.createElement("h5");
+    interHeading.innerHTML = "✅ Inter Document Checks";
+    container.appendChild(interHeading);
+  
+    const interList = document.createElement("ul");
+    interList.className = "list-group";
+  
+    for (let check in inter_document_checks) {
+      const li = document.createElement("li");
+      li.className = "list-group-item d-flex justify-content-between align-items-center";
+  
+      const checkPassed = inter_document_checks[check];
+      li.innerHTML = `
+        <span>${check}</span>
+        <span class="badge ${checkPassed ? 'bg-success' : 'bg-danger'}">
+          ${checkPassed ? '✔️ Passed' : '❌ Failed'}
+        </span>
+      `;
+      interList.appendChild(li);
+    }
+  
+    container.appendChild(interList);
+  
+    // === INTRA DOCUMENT ANOMALIES ===
+    const intraHeading = document.createElement("h5");
+    intraHeading.className = "mt-4";
+    intraHeading.innerHTML = "⚠️ Intra Document Anomalies";
+    container.appendChild(intraHeading);
+  
+    if (!intra_document_anomalies || intra_document_anomalies.length === 0) {
+      const noAnomalies = document.createElement("p");
+      noAnomalies.className = "text-success";
+      noAnomalies.innerHTML = "✅ No intra-document anomalies detected!";
+      container.appendChild(noAnomalies);
+    } else {
+      const anomalyList = document.createElement("ul");
+      anomalyList.className = "list-group";
+  
+      intra_document_anomalies.forEach(anomaly => {
+        const li = document.createElement("li");
+        li.className = "list-group-item list-group-item-warning";
+        li.innerHTML = `
+          🟠 <strong>${anomaly.severity} Severity</strong><br>
+          <strong>${anomaly.type}:</strong> ${anomaly.details}
+        `;
+        anomalyList.appendChild(li);
+      });
+  
+      container.appendChild(anomalyList);
+    }
   }
-
-  const list = document.createElement("ul");
-  list.className = "list-group";
-
-  data.anomalies_detected.forEach(anomaly => {
-    const li = document.createElement("li");
-    li.className = "list-group-item list-group-item-warning";
-    li.innerHTML = `⚠️ ${anomaly}`;
-    list.appendChild(li);
-  });
-
-  container.appendChild(list);
-}
 
 // Render OCR Check
 function renderOCRCheck(data) {
