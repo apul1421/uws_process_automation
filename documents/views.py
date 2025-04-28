@@ -19,7 +19,8 @@ from .utils import (
     check_page_quality,
     check_ocr_completeness,
     detect_cross_document_anomalies,
-    llm_full_page_analysis
+    llm_full_page_analysis,
+    generate_memo_from_fields
 )
 
 # ====== Testing Flag ======
@@ -233,5 +234,80 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=True, methods=["get"], url_path="memo")
+    def generate_memo(self, request, pk=None):
+        try:
+            document = self.get_object()
+            pages = document.pages.all()
+
+            # Organize data for memo generation
+            extracted_data = {}
+            for page in pages:
+                doc_type = page.document_type or f"unknown_page_{page.page_number}"
+                extracted_data[doc_type] = page.extracted_fields or {}
+
+            # Call the utility function to build the memo
+            memo_text = generate_memo_from_fields(extracted_data)
+
+            return Response({
+                "document_id": document.id,
+                "memo_text": memo_text
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=True, methods=["get"], url_path="data-validation")
+    def data_validation(self, request, pk=None):
+        try:
+            document = self.get_object()
+            pages = document.pages.all()
+
+            extracted_data = {}
+            for page in pages:
+                doc_type = page.document_type or f"unknown_page_{page.page_number}"
+                extracted_data[doc_type] = page.extracted_fields or {}
+
+            payslip_data = extracted_data.get("Payslip", {})
+            contract_data = extracted_data.get("Contract of Employment", {})
+
+            gross_monthly_str = payslip_data.get("Gross monthly income", "")
+            contract_annual_str = contract_data.get("Annual Salary", "")
+
+            from .utils import clean_salary_value  # make sure it's imported
+
+            gross_monthly = clean_salary_value(gross_monthly_str)
+            contract_annual = clean_salary_value(contract_annual_str)
+
+            if gross_monthly is None or contract_annual is None:
+                return Response({
+                    "document_id": document.id,
+                    "status": "Incomplete",
+                    "note": "Missing gross monthly income or annual contract salary data."
+                }, status=status.HTTP_200_OK)
+
+            calculated_annual = round(gross_monthly * 12, 2)
+            status_str = "Verified ✅" if abs(calculated_annual - contract_annual) < 100 else "Mismatch ❌"
+
+            validation_note = (
+                f"Total gross pay is £{gross_monthly:.2f}. When calculated annually, "
+                f"it is £{calculated_annual:.2f}. Income on contract is £{contract_annual:.2f}. "
+                f"Hence verified using contract. ({status_str})"
+            )
+
+            return Response({
+                "document_id": document.id,
+                "gross_monthly": f"£{gross_monthly:.2f}",
+                "calculated_annual": f"£{calculated_annual:.2f}",
+                "contract_annual": f"£{contract_annual:.2f}",
+                "status": status_str,
+                "note": validation_note
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            import traceback
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

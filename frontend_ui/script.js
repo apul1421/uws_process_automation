@@ -66,6 +66,8 @@ function loadAllTabResults() {
   fetchOCRCheck();
   fetchFieldExtraction();
   fetchQualityReport();
+  fetchMemo();
+  fetchDataValidation();
 }
 
 // API Caller
@@ -337,3 +339,80 @@ function scoreToQuality(score) {
   if (score >= 50) return "Average";
   return "Poor";
 }
+
+async function fetchMemo() {
+    if (!currentDocumentId) return;
+    setLoading("memo");
+  
+    try {
+      const response = await fetch(`${backendUrl}/documents/${currentDocumentId}/memo/`, {
+        headers: { Authorization: `Token ${authToken}` }
+      });
+  
+      if (!response.ok) throw new Error("Failed to fetch memo.");
+  
+      const data = await response.json();
+      renderMemo(data);
+    } catch (error) {
+      console.error("Error fetching memo:", error);
+      document.getElementById("memoContent").innerHTML = `<p class="text-danger">Error loading memo.</p>`;
+    }
+  }
+
+function renderMemo(data) {
+    const container = document.getElementById("memoContent");
+    container.innerHTML = "";
+  
+    const textarea = document.createElement("textarea");
+    textarea.className = "form-control";
+    textarea.rows = 20;
+  
+    // Use entire memo text from backend
+    textarea.value = data.memo_text || "No memo generated.";
+  
+    container.appendChild(textarea);
+}
+
+async function fetchDataValidation() {
+    if (!currentDocumentId) return;
+    setLoading("validation");
+  
+    try {
+      const response = await fetch(`${backendUrl}/documents/${currentDocumentId}/data-validation/`, {
+        headers: { Authorization: `Token ${authToken}` }
+      });
+  
+      if (!response.ok) throw new Error("Failed to fetch data validation report.");
+  
+      const data = await response.json();
+      renderDataValidation(data);
+    } catch (error) {
+      console.error("Error fetching data validation:", error);
+      document.getElementById("validationContent").innerHTML = `<p class="text-danger">Error loading data validation.</p>`;
+    }
+  }
+  
+  function renderDataValidation(data) {
+    const container = document.getElementById("validationContent");
+    container.innerHTML = "";
+  
+    if (data.error) {
+      container.innerHTML = `<p class="text-danger">${data.error}</p>`;
+      return;
+    }
+  
+    const card = document.createElement("div");
+    card.className = "card p-4 shadow-sm";
+  
+    card.innerHTML = `
+      <h5 class="mb-3">✅ Gross Salary Validation</h5>
+      <p>${data.note}</p>
+      <ul class="list-group">
+        <li class="list-group-item"><strong>Gross Monthly Income:</strong> ${data.gross_monthly}</li>
+        <li class="list-group-item"><strong>Calculated Annual Income:</strong> ${data.calculated_annual}</li>
+        <li class="list-group-item"><strong>Contract Annual Income:</strong> ${data.contract_annual}</li>
+      </ul>
+    `;
+  
+    container.appendChild(card);
+  }

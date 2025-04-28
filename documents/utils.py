@@ -709,3 +709,64 @@ def check_payslip_rules(payslip_fields, extracted_data):
         })
 
     return anomalies
+
+
+def generate_memo_from_fields(extracted_data):
+    print("\n======= DEBUG: Memo Field Extraction Start =======")
+
+    # Static fields
+    buyer_type = "First Time Buyer"
+    amount_to_be_borrowed = "£247,000"
+    mortgage_term = "35 Years 0 Months"
+    deposit_source = "Savings"
+    deposit_amount = "£13,000"
+    savings_and_investments = "£300.00"
+
+    # Dynamic fields
+    basic_pay = "Not Available"
+    net_income = "Not Available"
+    salary_credited = "Not Available"
+    monthly_expenditure = "Not Available"
+
+    for doc_type, fields in extracted_data.items():
+        print(f"\n--- Extracting Fields from {doc_type} ---")
+        print(json.dumps(fields, indent=2))
+
+        doc_type_lower = doc_type.lower()
+
+        if "payslip" in doc_type_lower:
+            basic_pay = fields.get("Gross monthly income", basic_pay)
+            net_income = fields.get("Net monthly income", net_income)
+
+        elif "bank statement" in doc_type_lower:
+            for k, v in fields.items():
+                k_lower = k.strip().lower()
+                if fuzz.partial_ratio(k_lower, "monthly deposits") > 85:
+                    salary_credited = v
+                elif fuzz.partial_ratio(k_lower, "monthly expenses") > 85:
+                    monthly_expenditure = v
+
+    memo_text = f"""
+Lending Details:
+a) Buyer type/Remortgage reason: {buyer_type}
+b) Total amount to be borrowed: {amount_to_be_borrowed}
+c) Mortgage term: {mortgage_term}
+
+Deposit/HOL (Application summary > DepositDetail):
+a) Source of deposit for mortgage: {deposit_source}
+b) Deposit amount: {deposit_amount}
+
+FOR STANDARD
+- Was Income verified as declared: {'Y' if basic_pay != 'Not Available' else 'N'} – Basic Pay: {basic_pay}
+- Outgoing verified as declared: {'Y' if monthly_expenditure != 'Not Available' else 'N'} – Monthly Expenditure: {monthly_expenditure}
+
+Can you evidence customer's salary credit:
+a) Total Personal Expenditure: {monthly_expenditure}
+b) Savings and Investment: {savings_and_investments}
+c) Salary Credited: {salary_credited}
+    """.strip()
+
+    print("\n======= DEBUG: Final Memo Text =======")
+    print(memo_text)
+
+    return memo_text

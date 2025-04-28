@@ -154,32 +154,44 @@
       <!-- Tabs -->
       <ul class="nav nav-tabs" id="resultTabs" role="tablist">
         <li class="nav-item" role="presentation">
-          <button class="nav-link active" id="anomaly-tab" data-bs-toggle="tab" data-bs-target="#anomaly" type="button" role="tab">Anomaly Detection</button>
+          <button class="nav-link active" id="ocr-tab" data-bs-toggle="tab" data-bs-target="#ocr" type="button" role="tab">OCR Check</button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="ocr-tab" data-bs-toggle="tab" data-bs-target="#ocr" type="button" role="tab">OCR Check</button>
+          <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Document Quality</button>
         </li>
         <li class="nav-item" role="presentation">
           <button class="nav-link" id="field-tab" data-bs-toggle="tab" data-bs-target="#field" type="button" role="tab">Field Extraction</button>
         </li>
+        <li class="nav-item">
+            <button class="nav-link" id="validation-tab" data-bs-toggle="tab" data-bs-target="#validation" type="button" role="tab">Data Validation</button>
+        </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Document Quality</button>
+          <button class="nav-link" id="anomaly-tab" data-bs-toggle="tab" data-bs-target="#anomaly" type="button" role="tab">Anomaly Detection</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="memo-tab" data-bs-toggle="tab" data-bs-target="#memo" type="button" role="tab">Memo</button>
         </li>
       </ul>
 
       <!-- Tabs Content -->
       <div class="tab-content p-4 border border-top-0 bg-white" id="resultContent">
-        <div class="tab-pane fade show active" id="anomaly" role="tabpanel" aria-labelledby="anomaly-tab">
-          <div id="anomalyContent"></div>
-        </div>
-        <div class="tab-pane fade" id="ocr" role="tabpanel" aria-labelledby="ocr-tab">
+        <div class="tab-pane fade show active" id="ocr" role="tabpanel" aria-labelledby="ocr-tab">
           <div id="ocrContent"></div>
+        </div>
+        <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
+          <div id="qualityContent"></div>
         </div>
         <div class="tab-pane fade" id="field" role="tabpanel" aria-labelledby="field-tab">
           <div id="fieldContent"></div>
         </div>
-        <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
-          <div id="qualityContent"></div>
+        <div class="tab-pane fade" id="validation" role="tabpanel" aria-labelledby="validation-tab">
+            <div id="validationContent" class="mt-3"></div>
+        </div>
+        <div class="tab-pane fade" id="anomaly" role="tabpanel" aria-labelledby="anomaly-tab">
+          <div id="anomalyContent"></div>
+        </div>
+        <div class="tab-pane fade" id="memo" role="tabpanel" aria-labelledby="memo-tab">
+          <div id="memoContent" class="mt-3"></div>
         </div>
       </div>
     </div>
