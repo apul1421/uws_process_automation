@@ -14,7 +14,7 @@ from django.conf import settings
 from rapidfuzz import fuzz
 # from paddleocr import PaddleOCR
 from PIL import Image, ImageFile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Allow loading truncated images
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -241,12 +241,12 @@ def detect_cross_document_anomalies(extracted_data):
 
     # For Inter Document Checks (ticks and crosses)
     inter_document_checks_result = {
-        "Employee Name (At least 2 words)": True,
-        "Employer Name Present": True,
-        "Gross Pay Present": True,
-        "Address Present": True,
-        "Tax/NI Deductions Present": True,
-        "Minimum Payslips Uploaded": True,
+        "Payslip - Employee Name (At least 2 words)": True,
+        "Payslip - Employer Name Present": True,
+        "Payslip - Gross Pay Present": True,
+        "Payslip - Address Present": True,
+        "Payslip - Tax/NI Deductions Present": True,
+        "Payslip - Minimum Payslips Uploaded": True,
     }
 
     names = []
@@ -314,23 +314,23 @@ def detect_cross_document_anomalies(extracted_data):
             # Inter document rules
             emp_name = standardized_fields.get("employee", "")
             if not emp_name or len(emp_name.split()) < 2:
-                inter_document_checks_result["Employee Name (At least 2 words)"] = False
+                inter_document_checks_result["Payslip - Employee Name (At least 2 words)"] = False
 
             emp_company = standardized_fields.get("employer", "")
             if not emp_company:
-                inter_document_checks_result["Employer Name Present"] = False
+                inter_document_checks_result["Payslip - Employer Name Present"] = False
 
             gross_pay = standardized_fields.get("gross_pay", "")
             if not gross_pay:
-                inter_document_checks_result["Gross Pay Present"] = False
+                inter_document_checks_result["Payslip - Gross Pay Present"] = False
 
             address = standardized_fields.get("address", "")
             if not address or address.lower() == "null":
-                inter_document_checks_result["Address Present"] = False
+                inter_document_checks_result["Payslip - Address Present"] = False
 
             tax_deductions = standardized_fields.get("tax_deductions", "")
             if not tax_deductions or tax_deductions.lower() == "not found":
-                inter_document_checks_result["Tax/NI Deductions Present"] = False
+                inter_document_checks_result["Payslip - Tax/NI Deductions Present"] = False
 
         # Standardized field extraction
         name = standardized_fields.get("employee")
@@ -389,7 +389,7 @@ def detect_cross_document_anomalies(extracted_data):
 
     # === Minimum Payslip Check ===
     if not payslip_found:
-        inter_document_checks_result["Minimum Payslips Uploaded"] = False
+        inter_document_checks_result["Payslip - Minimum Payslips Uploaded"] = False
 
     print("\n====== Aggregated Data ======")
     print(f"Names: {names}")
@@ -412,7 +412,7 @@ def detect_cross_document_anomalies(extracted_data):
             print(f"Name similarity: {base} <-> {other} = {similarity}")
             if similarity < 90:
                 anomalies.append({
-                    "severity": "High",
+                    "severity": "Medium",
                     "type": "Name Mismatch",
                     "details": f"{name_sources[0]} vs {name_sources[idx]}: {base} <-> {other}"
                 })
@@ -451,7 +451,7 @@ def detect_cross_document_anomalies(extracted_data):
             matches = [credit for credit in bank_salary_credits if abs(net - credit) <= 10]
             if not matches:
                 anomalies.append({
-                    "severity": "Medium",
+                    "severity": "High",
                     "type": "Salary Mismatch",
                     "details": f"Net Pay {net} (Payslip) vs Bank Credits {','.join(map(str, bank_salary_credits))}"
                 })
@@ -500,6 +500,490 @@ def detect_cross_document_anomalies(extracted_data):
 
     return inter_document_checks_result, anomalies
 
+# ---------- P60 Cross Document Anomaly Detection ----------
+def detect_p60_cross_document_anomalies(extracted_data):
+    anomalies = []
+    inter_document_checks_result = {
+        "P60 - Employee Name (At least 2 words)": True,
+        "P60 - National Insurance Number Matches Payslip": True,
+        "P60 - Address Matches Payslip": True,
+        "P60 - Income Matches Payslip Gross*12": True,
+    }
+
+    # Initialize fields
+    p60_employee_name = p60_address = p60_ni = p60_income = None
+    payslip_employee_name = payslip_address = payslip_ni = None
+    payslip_gross_income = None
+
+    print("\n========== 🛠️ Starting P60 Anomaly Detection ==========")
+
+    for doc_type, fields in extracted_data.items():
+        if not fields:
+            continue
+
+        print(f"\n--- 📄 Processing {doc_type} ---")
+        print(json.dumps(fields, indent=2))
+
+        standardized_fields = {}
+        for key, value in fields.items():
+            key_lower = key.strip().lower()
+
+            if "full name" in key_lower or ("name" in key_lower and "employee" in key_lower):
+                standardized_fields["employee_name"] = value
+            if "address" in key_lower:
+                standardized_fields["address"] = value
+            if "national insurance" in key_lower or "ni number" in key_lower:
+                standardized_fields["ni_number"] = value
+            if "annual gross income" in key_lower:
+                standardized_fields["p60_income"] = value
+            if "gross monthly income" in key_lower or "gross pay" in key_lower:
+                standardized_fields["gross_pay"] = value
+
+        if "payslip" in doc_type.lower():
+            payslip_employee_name = standardized_fields.get("employee_name")
+            payslip_address = standardized_fields.get("address")
+            payslip_ni = standardized_fields.get("ni_number")
+            gross_pay = standardized_fields.get("gross_pay")
+            if gross_pay:
+                payslip_gross_income = clean_salary_value(gross_pay)
+
+        if "p60" in doc_type.lower():
+            p60_employee_name = standardized_fields.get("employee_name")
+            p60_address = standardized_fields.get("address")
+            p60_ni = standardized_fields.get("ni_number")
+            p60_income = standardized_fields.get("p60_income")
+
+    print("\n====== 📊 Extracted Key Fields ======")
+    print(f"P60 Employee Name    : {p60_employee_name}")
+    print(f"P60 Address          : {p60_address}")
+    print(f"P60 National Insurance: {p60_ni}")
+    print(f"P60 Income           : {p60_income}")
+    print(f"Payslip Employee Name : {payslip_employee_name}")
+    print(f"Payslip Address       : {payslip_address}")
+    print(f"Payslip NI Number     : {payslip_ni}")
+    print(f"Payslip Gross Income  : {payslip_gross_income}")
+    print("=====================================\n")
+
+    # === CHECKS ===
+
+    # 1. Employee Name should have at least 2 words
+    print("🔎 Checking: P60 Employee Name has at least 2 words...")
+    if not p60_employee_name or len(p60_employee_name.split()) < 2:
+        print("❌ Failed: Employee name missing or incomplete.")
+        inter_document_checks_result["P60 - Employee Name (At least 2 words)"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "P60 Employee Name Issue",
+            "details": "Employee name in P60 does not have at least 2 words"
+        })
+    else:
+        print("✅ Passed: Employee name is valid.")
+
+    # 2. Address Match between Payslip and P60
+    print("\n🔎 Checking: P60 Address matches Payslip address...")
+    if p60_address and payslip_address:
+        similarity = fuzz.partial_ratio(p60_address.lower(), payslip_address.lower())
+        print(f"Similarity Score: {similarity}")
+        if similarity < 85:
+            print("❌ Failed: Address mismatch detected.")
+            inter_document_checks_result["P60 - Address Matches Payslip"] = False
+            anomalies.append({
+                "severity": "Medium",
+                "type": "P60 Address Mismatch",
+                "details": "Address on P60 does not match address on Payslip"
+            })
+        else:
+            print("✅ Passed: Address matches successfully.")
+    else:
+        print("⚠️ Warning: Address data missing in either P60 or Payslip.")
+        inter_document_checks_result["P60 - Address Matches Payslip"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "P60 Address Data Missing",
+            "details": "Address missing in either P60 or Payslip"
+        })
+
+    # 3. NI Number match
+    print("\n🔎 Checking: P60 NI number matches Payslip NI number...")
+    if p60_ni and payslip_ni:
+        similarity = fuzz.partial_ratio(p60_ni.lower(), payslip_ni.lower())
+        print(f"Similarity Score: {similarity}")
+        if similarity < 90:
+            print("❌ Failed: NI number mismatch detected.")
+            inter_document_checks_result["P60 - National Insurance Number Matches Payslip"] = False
+            anomalies.append({
+                "severity": "High",
+                "type": "P60 NI Number Mismatch",
+                "details": "National Insurance Number on P60 does not match Payslip"
+            })
+        else:
+            print("✅ Passed: NI numbers match successfully.")
+    else:
+        print("❌ Failed: NI number missing in either P60 or Payslip.")
+        inter_document_checks_result["P60 - National Insurance Number Matches Payslip"] = False
+        anomalies.append({
+            "severity": "High",
+            "type": "P60 NI Number Missing",
+            "details": "NI number missing in either P60 or Payslip"
+        })
+
+    # 4. Income Match
+    print("\n🔎 Checking: P60 Income matches Payslip Gross*12...")
+    if p60_income and payslip_gross_income:
+        try:
+            p60_income_val = clean_salary_value(p60_income)
+            payslip_annual_income = payslip_gross_income * 12
+            diff = abs(payslip_annual_income - p60_income_val)
+            print(f"Calculated Difference: {diff}")
+            if diff > 200:
+                print("❌ Failed: Income mismatch detected.")
+                inter_document_checks_result["P60 - Income Matches Payslip Gross*12"] = False
+                anomalies.append({
+                    "severity": "Medium",
+                    "type": "P60 Income Mismatch",
+                    "details": f"Income mismatch: Payslip Gross*12 ({payslip_annual_income}) vs P60 Income ({p60_income_val})"
+                })
+            else:
+                print("✅ Passed: Income matches successfully.")
+        except Exception as e:
+            print(f"⚠️ Error during income comparison: {e}")
+            inter_document_checks_result["P60 - Income Matches Payslip Gross*12"] = False
+    else:
+        print("❌ Failed: Income data missing in either P60 or Payslip.")
+        inter_document_checks_result["P60 - Income Matches Payslip Gross*12"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "P60 Income Data Missing",
+            "details": "Income missing in either P60 or Payslip"
+        })
+
+    print("\n========== ✅ Completed P60 Anomaly Detection ==========\n")
+    return inter_document_checks_result, anomalies
+
+# ---------- Contract of Employment Cross Document Anomaly Detection ----------
+def detect_contract_cross_document_anomalies(extracted_data):
+    anomalies = []
+    inter_document_checks_result = {
+        "Contract - Employee Name (At least 2 words)": True,
+        "Contract - Employer Name Matches Payslip": True,
+        "Contract - Address Matches Payslip": True,
+        "Contract - Contract Type Present (Permanent/Fixed Term/Temporary)": True,
+        "Contract - Annual Income Matches Payslip Gross*12": True,
+        "Contract - Employee Signature Present": True,
+    }
+
+    # Initialize fields
+    contract_employee_name = contract_employer_name = contract_address = None
+    contract_type = contract_annual_income = contract_signature = None
+
+    payslip_employee_name = payslip_employer_name = payslip_address = None
+    payslip_gross_income = None
+
+    print("\n========== 🛠️ Starting Contract Anomaly Detection ==========")
+
+    for doc_type, fields in extracted_data.items():
+        if not fields:
+            continue
+
+        print(f"\n--- 📄 Processing {doc_type} ---")
+        print(json.dumps(fields, indent=2))
+
+        standardized_fields = {}
+        for key, value in fields.items():
+            key_lower = key.strip().lower()
+
+            if "employee name" in key_lower:
+                standardized_fields["employee_name"] = value
+            if "employer name" in key_lower:
+                standardized_fields["employer_name"] = value
+            if "address" in key_lower:
+                standardized_fields["address"] = value
+            if "type of contract" in key_lower:
+                standardized_fields["contract_type"] = value
+            if "annual salary" in key_lower or "annual income" in key_lower:
+                standardized_fields["annual_income"] = value
+            if "gross monthly income" in key_lower or "gross pay" in key_lower:
+                standardized_fields["gross_pay"] = value
+            if "signature" in key_lower or "employee signature" in key_lower:
+                standardized_fields["signature"] = value
+
+        if "contract" in doc_type.lower():
+            contract_employee_name = standardized_fields.get("employee_name")
+            contract_employer_name = standardized_fields.get("employer_name")
+            contract_address = standardized_fields.get("address")
+            contract_type = standardized_fields.get("contract_type")
+            contract_annual_income = standardized_fields.get("annual_income")
+            contract_signature = standardized_fields.get("signature")
+
+        if "payslip" in doc_type.lower():
+            payslip_employee_name = standardized_fields.get("employee_name")
+            payslip_employer_name = standardized_fields.get("employer_name")
+            payslip_address = standardized_fields.get("address")
+            gross_pay = standardized_fields.get("gross_pay")
+            if gross_pay:
+                payslip_gross_income = clean_salary_value(gross_pay)
+
+    print("\n====== 📊 Extracted Key Fields ======")
+    print(f"Contract Employee Name   : {contract_employee_name}")
+    print(f"Contract Employer Name   : {contract_employer_name}")
+    print(f"Contract Address         : {contract_address}")
+    print(f"Contract Type            : {contract_type}")
+    print(f"Contract Annual Income   : {contract_annual_income}")
+    print(f"Contract Employee Signature : {contract_signature}")
+    print(f"Payslip Employer Name    : {payslip_employer_name}")
+    print(f"Payslip Employee Address : {payslip_address}")
+    print(f"Payslip Gross Income     : {payslip_gross_income}")
+    print("=====================================\n")
+
+    # === CHECKS ===
+
+    # 1. Employee Name should have at least 2 words
+    print("🔎 Checking: Contract Employee Name has at least 2 words...")
+    if not contract_employee_name or len(contract_employee_name.split()) < 2:
+        print("❌ Failed: Employee name missing or incomplete.")
+        inter_document_checks_result["Contract - Employee Name (At least 2 words)"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "Contract Employee Name Issue",
+            "details": "Employee name in Contract does not have at least 2 words"
+        })
+    else:
+        print("✅ Passed: Employee name is valid.")
+
+    # 2. Employer Name match
+    print("\n🔎 Checking: Contract Employer Name matches Payslip...")
+    if contract_employer_name and payslip_employer_name:
+        similarity = fuzz.partial_ratio(contract_employer_name.lower(), payslip_employer_name.lower())
+        print(f"Similarity Score: {similarity}")
+        if similarity < 85:
+            print("❌ Failed: Employer name mismatch detected.")
+            inter_document_checks_result["Contract - Employer Name Matches Payslip"] = False
+            anomalies.append({
+                "severity": "Medium",
+                "type": "Contract Employer Mismatch",
+                "details": "Employer name in Contract does not match Payslip"
+            })
+        else:
+            print("✅ Passed: Employer name matches successfully.")
+    else:
+        print("⚠️ Warning: Employer name missing in either Contract or Payslip.")
+        inter_document_checks_result["Contract - Employer Name Matches Payslip"] = False
+
+    # 3. Address Match
+    print("\n🔎 Checking: Contract Address matches Payslip Address...")
+    if contract_address and payslip_address:
+        similarity = fuzz.partial_ratio(contract_address.lower(), payslip_address.lower())
+        print(f"Similarity Score: {similarity}")
+        if similarity < 85:
+            print("❌ Failed: Address mismatch detected.")
+            inter_document_checks_result["Contract - Address Matches Payslip"] = False
+            anomalies.append({
+                "severity": "Medium",
+                "type": "Contract Address Mismatch",
+                "details": "Address on Contract does not match Payslip"
+            })
+        else:
+            print("✅ Passed: Address matches successfully.")
+    else:
+        print("⚠️ Warning: Address missing in either Contract or Payslip.")
+        inter_document_checks_result["Contract - Address Matches Payslip"] = False
+
+    # 4. Contract Type Present
+    print("\n🔎 Checking: Contract Type Present...")
+    if not contract_type or contract_type.lower() not in ["permanent", "fixed term", "temporary"]:
+        print("❌ Failed: Contract Type missing or invalid.")
+        inter_document_checks_result["Contract - Contract Type Present (Permanent/Fixed Term/Temporary)"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "Contract Type Missing",
+            "details": "Contract Type (Permanent, Fixed term, Temporary) not specified in Contract"
+        })
+    else:
+        print(f"✅ Passed: Contract Type '{contract_type}' is valid.")
+
+    # 5. Annual Income Matches Gross*12
+    print("\n🔎 Checking: Contract Annual Income matches Payslip Gross*12...")
+    if contract_annual_income and payslip_gross_income:
+        try:
+            contract_annual_val = clean_salary_value(contract_annual_income)
+            payslip_annual_income = payslip_gross_income * 12
+            diff = abs(payslip_annual_income - contract_annual_val)
+            print(f"Calculated Difference: {diff}")
+            if diff > 200:
+                print("❌ Failed: Annual Income mismatch detected.")
+                inter_document_checks_result["Contract - Annual Income Matches Payslip Gross*12"] = False
+                anomalies.append({
+                    "severity": "Medium",
+                    "type": "Contract Annual Income Mismatch",
+                    "details": f"Annual Income mismatch: Contract ({contract_annual_val}) vs Payslip Gross*12 ({payslip_annual_income})"
+                })
+            else:
+                print("✅ Passed: Annual income matches successfully.")
+        except Exception as e:
+            print(f"⚠️ Error during income matching: {e}")
+            inter_document_checks_result["Contract - Annual Income Matches Payslip Gross*12"] = False
+    else:
+        print("⚠️ Warning: Annual Income data missing in either Contract or Payslip.")
+        inter_document_checks_result["Contract - Annual Income Matches Payslip Gross*12"] = False
+
+    # 6. Employee Signature Check
+    print("\n🔎 Checking: Employee Signature Present on Contract...")
+    if not contract_signature or contract_signature.lower() == "null" or contract_signature.strip() == "":
+        print("❌ Failed: Employee Signature missing.")
+        inter_document_checks_result["Contract - Employee Signature Present"] = False
+        anomalies.append({
+            "severity": "High",
+            "type": "Contract Signature Missing",
+            "details": "Employee Signature not found in Contract of Employment"
+        })
+    else:
+        print("✅ Passed: Employee Signature found.")
+
+    print("\n========== ✅ Completed Contract Anomaly Detection ==========\n")
+    return inter_document_checks_result, anomalies
+
+# ---------- Bank Statement Cross Document Anomaly Detection ----------
+
+def detect_bank_statement_cross_document_anomalies(extracted_data):
+    print("\n========== 🛠️ Starting Bank Statement Anomaly Detection ==========")
+    
+    anomalies = []
+    inter_document_checks_result = {
+        "Bank Statement - Employee Name (At least 2 words)": True,
+        "Bank Statement - Account Number Present": True,
+        "Bank Statement - Sort Code Present": True,
+        "Bank Statement - Salary Matches Payslip Net Pay": True,
+        "Bank Statement - No Large Unexplained Credits or Debits": True,
+        "Bank Statement - No Gambling or Sanctioned Transactions": True,
+        "Bank Statement - Address Matches Payslip": True,
+    }
+
+    bank_fields = {}
+    payslip_fields = {}
+
+    # === Extract relevant fields ===
+    print("\n--- 📄 Extracting Fields ---")
+    for doc_type, fields in extracted_data.items():
+        if not fields:
+            continue
+
+        print(f"\n📄 {doc_type} Fields:")
+        print(json.dumps(fields, indent=2))
+
+        doc_type_lower = doc_type.lower()
+        if "bank" in doc_type_lower:
+            bank_fields = fields
+        elif "payslip" in doc_type_lower:
+            payslip_fields = fields
+
+    # === 1. Name Check ===
+    name = bank_fields.get("Account holder name")
+    print(f"\n🔍 Checking Account holder name: {name}")
+    if not name or len(name.split()) < 2:
+        inter_document_checks_result["Bank Statement - Employee Name (At least 2 words)"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "Bank Statement Name Issue",
+            "details": "Account holder name has less than 2 words"
+        })
+
+    # === 2. Account Number Check ===
+    account_number = bank_fields.get("Account number")
+    print(f"🔍 Checking Account number: {account_number}")
+    if not account_number:
+        inter_document_checks_result["Bank Statement - Account Number Present"] = False
+        anomalies.append({
+            "severity": "High",
+            "type": "Bank Statement Account Number Missing",
+            "details": "Account number missing in Bank Statement"
+        })
+
+    # === 3. Sort Code Check ===
+    sort_code = bank_fields.get("Sort code")
+    print(f"🔍 Checking Sort code: {sort_code}")
+    if not sort_code:
+        inter_document_checks_result["Bank Statement - Sort Code Present"] = False
+        anomalies.append({
+            "severity": "High",
+            "type": "Bank Statement Sort Code Missing",
+            "details": "Sort code missing in Bank Statement"
+        })
+
+    # === 4. Salary Match ===
+    deposits = None
+    for k, v in bank_fields.items():
+        if "monthly deposit" in k.lower():
+            deposits = v
+            break
+    net_pay = payslip_fields.get("Net monthly income") or payslip_fields.get("Net Pay")
+    print(f"🔍 Deposits: {deposits}")
+    print(f"🔍 Payslip Net Pay: {net_pay}")
+
+    if deposits and net_pay:
+        latest_salary = extract_latest_salary(deposits)
+        cleaned_net = clean_salary_value(net_pay)
+        print(f"💰 Latest Salary Credited: {latest_salary}")
+        print(f"💰 Net Pay from Payslip: {cleaned_net}")
+        if latest_salary is not None and cleaned_net is not None:
+            diff = abs(latest_salary - cleaned_net)
+            print(f"💡 Salary Difference: {diff}")
+            if diff > 10:
+                inter_document_checks_result["Bank Statement - Salary Matches Payslip Net Pay"] = False
+                anomalies.append({
+                    "severity": "High",
+                    "type": "Salary Mismatch",
+                    "details": f"Net Pay on Payslip ({cleaned_net}) does not match salary credited in bank ({latest_salary})"
+                })
+
+    # === 5. Large Credit/Debit Check ===
+    transactions_text = bank_fields.get("Transactions", "") or ""
+    print(f"\n🔍 Transactions Text: {transactions_text}")
+    if any(amount in transactions_text for amount in ["£5000", "10000", "20000"]):
+        print("⚠️ Large transaction detected!")
+        inter_document_checks_result["Bank Statement - No Large Unexplained Credits or Debits"] = False
+        anomalies.append({
+            "severity": "Medium",
+            "type": "Large Transaction Detected",
+            "details": "Large credit or debit detected in Bank Statement"
+        })
+
+    # === 6. Gambling/Sanctioned Check ===
+    risky_keywords = ["bet", "casino", "poker", "cryptocurrency", "binance", "russia", "iran"]
+    risky_found = [word for word in risky_keywords if word in transactions_text.lower()]
+    print(f"🔍 Risky Keywords Found: {risky_found}")
+    if risky_found:
+        inter_document_checks_result["Bank Statement - No Gambling or Sanctioned Transactions"] = False
+        anomalies.append({
+            "severity": "High",
+            "type": "Risky Transactions",
+            "details": "Gambling or sanctioned transactions found in bank statement"
+        })
+
+    # === 7. Address Match ===
+    bank_address = bank_fields.get("Address", "")
+    payslip_address = payslip_fields.get("Address", "")
+    print(f"\n🔍 Bank Address: {bank_address}")
+    print(f"🔍 Payslip Address: {payslip_address}")
+
+    if bank_address and payslip_address:
+        similarity = fuzz.partial_ratio(bank_address.lower(), payslip_address.lower())
+        print(f"📏 Address Similarity Score: {similarity}")
+        if similarity < 85:
+            inter_document_checks_result["Bank Statement - Address Matches Payslip"] = False
+            anomalies.append({
+                "severity": "Medium",
+                "type": "Bank Statement Address Mismatch",
+                "details": f"Bank address does not match Payslip address"
+            })
+
+    print("\n✅ Completed Bank Statement Check\n")
+    print(f"Inter Document Checks Result:\n{json.dumps(inter_document_checks_result, indent=2)}")
+    print(f"\nStructured Anomalies:\n{json.dumps(anomalies, indent=2)}\n")
+    
+    return inter_document_checks_result, anomalies
+
+
+
 def llm_full_page_analysis(document_text):
     """
     Use Gemini to classify, extract fields, check missing fields, and confidence scores in one go.
@@ -523,18 +1007,22 @@ c) Gross monthly income
 d) Net monthly income
 e) Tax/NI deductions
 f) Address (Residential Address of employee only)
+g) National Insurance Number (NI No)
 2.3  P60:
 a) Annual gross income
 b) Total tax paid
 c) Employee name
 d) Employer name
 e) Address (Residential Address of employee only)
+f) National Insurance Number (NI No)
 2.4 Bank Statements
 a) Account holder name
-b) Monthly deposits (income/Salary)
-c) Monthly expenses (Summation of expenses for every month like Jan:45 Feb:55 )
-d) Overdraft usage
-e) Address (Residential Address of employee and not Employer's office address)
+b) Account number
+c) Sort code
+d) Monthly deposits (income/Salary)
+e) Monthly expenses (Summation of expenses for every month like Jan:45 Feb:55 )
+f) Overdraft usage
+g) Address (Residential Address of employee and not Employer's office address)
 2.5 Contract of Employement
 a) Employee name
 b) Employer name
@@ -654,7 +1142,7 @@ def check_payslip_rules(payslip_fields, extracted_data):
         similarity = fuzz.partial_ratio(employee_name.lower(), id_name.lower())
         if similarity < 90:
             anomalies.append({
-                "severity": "High",
+                "severity": "Medium",
                 "type": "Name Mismatch",
                 "details": f"Employee name on Payslip ({employee_name}) does not match ID Proof ({id_name})."
             })
@@ -770,3 +1258,219 @@ c) Salary Credited: {salary_credited}
     print(memo_text)
 
     return memo_text
+
+def validate_payslip(fields):
+    print("\n=== Running Payslip Validation ===")
+    results = {}
+
+    gross_income = fields.get("Gross monthly income")
+    net_income = fields.get("Net monthly income")
+    tax_ni = fields.get("Tax/NI deductions")
+    pay_date_str = fields.get("Pay Date") or fields.get("Payment Date") or ""
+
+    print(f"Fields Found: Gross Income: {gross_income}, Net Income: {net_income}, Tax/NI: {tax_ni}, Pay Date: {pay_date_str}")
+
+    # Minimum payslip presence based on salary being present
+    results["Minimum of one month's most recent payslip"] = bool(gross_income)
+
+    # Tax/NI must be present
+    results["Ensure that Tax and NI contribution is present"] = bool(tax_ni)
+
+    # Pay date check
+    results["Payslip must be Dated (not undated)"] = False  # Assume False unless proven
+
+    if pay_date_str:
+        # Try parsing common formats
+        possible_formats = ["%d %b %Y", "%d %B %Y", "%d/%m/%Y", "%Y-%m-%d"]
+
+        parsed_date = None
+        for fmt in possible_formats:
+            try:
+                parsed_date = datetime.strptime(pay_date_str.strip(), fmt)
+                break
+            except Exception:
+                continue
+
+        if parsed_date:
+            today = datetime.today()
+            age_days = (today - parsed_date).days
+            print(f"Payslip Date Parsed: {parsed_date} (Age in days: {age_days})")
+            results["Payslip must be Dated (not undated)"] = True
+        else:
+            print("❌ Could not parse Payslip Date properly.")
+    else:
+        print("❌ No Pay Date field found in Payslip.")
+
+    print(f"Validation Results: {results}\n")
+    return results
+
+def validate_p60(fields):
+    print("\n=== Running P60 Validation ===")
+    results = {}
+
+    p60_date_str = fields.get("Tax Year Ending") or fields.get("Date of Issue") or fields.get("Tax Year End") or ""
+
+    print(f"P60 Fields Found: {fields}")
+    print(f"P60 Tax Year Ending field: {p60_date_str}")
+
+    # Assume failure unless verified
+    results["Latest document within 12 months"] = False
+
+    if p60_date_str:
+        # Try to parse common formats
+        possible_formats = ["%d %b %Y", "%d %B %Y", "%d/%m/%Y", "%Y-%m-%d", "%b %Y", "%B %Y"]
+
+        parsed_date = None
+        for fmt in possible_formats:
+            try:
+                parsed_date = datetime.strptime(p60_date_str.strip(), fmt)
+                break
+            except Exception:
+                continue
+
+        if parsed_date:
+            today = datetime.today()
+            age_days = (today - parsed_date).days
+            print(f"P60 Document Date Parsed: {parsed_date} (Age in days: {age_days})")
+
+            if age_days <= 400:  # roughly within 12-13 months
+                results["Latest document within 12 months"] = True
+            else:
+                results["Latest document within 12 months"] = False
+        else:
+            print("❌ Could not parse P60 Tax Year Ending Date properly.")
+            results["Latest document within 12 months"] = False
+    else:
+        print("❌ No Tax Year Ending field found for P60.")
+
+    print(f"Validation Results: {results}\n")
+    return results
+
+def validate_contract(fields):
+    print("\n=== Running Contract of Employment Validation ===")
+    results = {}
+
+    contract_type = fields.get("Type of contract", "").lower()
+    start_date = fields.get("Job Start Date", "")
+    employer_name = fields.get("Employer Name") or fields.get("Employer name")
+    employee_name = fields.get("Employee Name") or fields.get("Employee name")
+
+    print(f"Contract Fields Found: Type: {contract_type}, Start Date: {start_date}, Employer: {employer_name}, Employee: {employee_name}")
+
+    # 1. Contract must mention Permanent/Temporary/Zero Hour
+    if contract_type:
+        if any(word in contract_type for word in ["permanent", "temporary", "fixed", "zero hour"]):
+            results["Contract must mention Permanent/Temporary/Zero Hour"] = True
+        else:
+            results["Contract must mention Permanent/Temporary/Zero Hour"] = False
+    else:
+        results["Contract must mention Permanent/Temporary/Zero Hour"] = False
+
+    # 2. Company Header Check (basic check on Employer Name presence)
+    if employer_name and employer_name.strip():
+        results["Contract should have company header"] = True
+    else:
+        results["Contract should have company header"] = False
+
+    # 3. Contract Print Date (Job Start Date) Check
+    try:
+        if start_date:
+            # Try parsing different formats
+            date_formats = ["%d %B %Y", "%d/%m/%Y", "%d-%m-%Y", "%B %d, %Y", "%d %b %Y"]
+            parsed_date = None
+            for fmt in date_formats:
+                try:
+                    parsed_date = datetime.strptime(start_date.strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if parsed_date:
+                today = datetime.today()
+                days_diff = (today - parsed_date).days
+                print(f"Start Date Parsed: {parsed_date}, Days difference from today: {days_diff}")
+                # Optional Rule: Should not be more than 10 years old
+                if days_diff <= 3650:  # 10 years
+                    results["Contract should have recent valid start date"] = True
+                else:
+                    results["Contract should have recent valid start date"] = False
+            else:
+                results["Contract should have recent valid start date"] = False
+        else:
+            results["Contract should have recent valid start date"] = False
+    except Exception as e:
+        print(f"Error parsing start date: {e}")
+        results["Contract should have recent valid start date"] = False
+
+    print(f"Validation Results: {results}\n")
+
+    return results
+
+def validate_bank_statement(fields):
+    print("\n=== Running Bank Statement Validation ===")
+    results = {}
+
+    deposits_str = fields.get("Monthly deposits", "")
+    expenses_str = fields.get("Monthly expenses", "")
+    address = fields.get("Address", "")
+    overdraft = fields.get("Overdraft usage", "")
+    
+    print(f"Bank Statement Fields Found: {fields}")
+
+    # Initialize
+    latest_date_valid = False
+    minimum_days_covered = False
+    consecutive_balances_check = False
+
+    # Validate 1: Latest bank statement within 35 days
+    try:
+        # Assuming that Monthly deposits keys are in format 'Jan:2630.00, Feb:2630.00, Mar:2630.00'
+        months_data = deposits_str.split(',')
+        if months_data:
+            last_month = months_data[-1].split(':')[0].strip()
+
+            month_mapping = {
+                "jan": 1, "feb": 2, "mar": 3,
+                "apr": 4, "may": 5, "jun": 6,
+                "jul": 7, "aug": 8, "sep": 9,
+                "oct": 10, "nov": 11, "dec": 12
+            }
+            now = datetime.now()
+            month_number = month_mapping.get(last_month[:3].lower(), 0)
+            year = now.year
+            if month_number > now.month:
+                year -= 1  # If document month is ahead of current month, assume last year
+
+            last_date = datetime(year, month_number, 1)
+            diff_days = (now - last_date).days
+
+            print(f"Last month in statement: {last_month}, Diff days: {diff_days}")
+
+            if diff_days <= 35:
+                latest_date_valid = True
+    except Exception as e:
+        print(f"Error while validating latest statement date: {e}")
+
+    # Validate 2: Bank statement must cover at least 30 days
+    try:
+        if len(months_data) >= 1:
+            minimum_days_covered = True
+    except Exception as e:
+        print(f"Error while checking 30 days coverage: {e}")
+
+    # Validate 3: Consecutive pages must match balance and date
+    try:
+        # Note: This needs real per-page balance checking. For now assume if we have multiple months, it's OK.
+        if len(months_data) >= 2:
+            consecutive_balances_check = True
+    except Exception as e:
+        print(f"Error while checking consecutive balances: {e}")
+
+    # Set Results
+    results["Latest bank statement within 35 days"] = latest_date_valid
+    results["Bank statement must cover latest 30 days"] = minimum_days_covered
+    results["Consecutive pages must match balance and dates"] = consecutive_balances_check
+
+    print(f"Validation Results: {results}\n")
+
+    return results

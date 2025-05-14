@@ -43,6 +43,15 @@ async function uploadSingleFile(file) {
   }
 }
 
+function getSeverityEmoji(severity) {
+  switch (severity) {
+    case "High": return "🔴";
+    case "Medium": return "🟠";
+    case "Low": return "🟢";
+    default: return "⚪️";
+  }
+}
+
 // Sidebar list
 function updateUploadedFilesList() {
   const list = document.getElementById("uploadedFilesList");
@@ -99,11 +108,14 @@ async function fetchAnomalies() {
 }
 
 async function fetchOCRCheck() {
-  if (!currentDocumentId) return;
-  setLoading("ocr");
-  const data = await callApi(`/documents/${currentDocumentId}/ocr-check/`);
-  renderOCRCheck(data);
-}
+    if (!currentDocumentId) return;
+    setLoading("ocr");
+    
+    const basicOCRData = await callApi(`/documents/${currentDocumentId}/ocr-check/`);
+    const detailedOCRData = await callApi(`/documents/${currentDocumentId}/ocr-detailed-check/`);
+    
+    renderOCRCheck(basicOCRData, detailedOCRData);
+  }
 
 async function fetchFieldExtraction() {
   if (!currentDocumentId) return;
@@ -119,103 +131,168 @@ async function fetchQualityReport() {
   renderQualityReport(data);
 }
 
-function renderAnomalies(data) {
-    const container = document.getElementById("anomalyContent");
-    container.innerHTML = "";
-  
-    const { document_type, inter_document_checks, intra_document_anomalies } = data;
-  
-    // === DOCUMENT NAME Heading ===
-    const docHeading = document.createElement("h4");
-    docHeading.className = "mb-3";
-    docHeading.innerHTML = `📄 <strong>Document:</strong> ${document_type || "Unknown"}`;
-    container.appendChild(docHeading);
-  
-    // === INTER DOCUMENT CHECKS ===
-    const interHeading = document.createElement("h5");
-    interHeading.innerHTML = "✅ Inter Document Checks";
-    container.appendChild(interHeading);
-  
-    const interList = document.createElement("ul");
-    interList.className = "list-group";
-  
-    for (let check in inter_document_checks) {
-      const li = document.createElement("li");
-      li.className = "list-group-item d-flex justify-content-between align-items-center";
-  
-      const checkPassed = inter_document_checks[check];
-      li.innerHTML = `
-        <span>${check}</span>
-        <span class="badge ${checkPassed ? 'bg-success' : 'bg-danger'}">
-          ${checkPassed ? '✔️ Passed' : '❌ Failed'}
-        </span>
-      `;
-      interList.appendChild(li);
-    }
-  
-    container.appendChild(interList);
-  
-    // === INTRA DOCUMENT ANOMALIES ===
-    const intraHeading = document.createElement("h5");
-    intraHeading.className = "mt-4";
-    intraHeading.innerHTML = "⚠️ Intra Document Anomalies";
-    container.appendChild(intraHeading);
-  
-    if (!intra_document_anomalies || intra_document_anomalies.length === 0) {
-      const noAnomalies = document.createElement("p");
-      noAnomalies.className = "text-success";
-      noAnomalies.innerHTML = "✅ No intra-document anomalies detected!";
-      container.appendChild(noAnomalies);
-    } else {
-      const anomalyList = document.createElement("ul");
-      anomalyList.className = "list-group";
-  
-      intra_document_anomalies.forEach(anomaly => {
-        const li = document.createElement("li");
-        li.className = "list-group-item list-group-item-warning";
-        li.innerHTML = `
-          🟠 <strong>${anomaly.severity} Severity</strong><br>
-          <strong>${anomaly.type}:</strong> ${anomaly.details}
-        `;
-        anomalyList.appendChild(li);
-      });
-  
-      container.appendChild(anomalyList);
-    }
-  }
 
-// Render OCR Check
-function renderOCRCheck(data) {
-  const container = document.getElementById("ocrContent");
+// --- script.js updated version (partial for Anomalies) ---
+function renderAnomalies(data) {
+  const container = document.getElementById("anomalyContent");
   container.innerHTML = "";
 
-  const expectedDocs = [
-    "ID Proof(Passport, Driving License)",
-    "Bank Statement",
-    "Contract of Employment",
-    "Payslip",
-    "P60"
-  ];
+  const { document_type, inter_document_checks, intra_document_anomalies } = data;
 
-  const foundDocs = data.ocr_check_report.map(page => page.document_type);
+  const interHeading = document.createElement("h5");
+  interHeading.innerHTML = "✅ Document Checks";
+  container.appendChild(interHeading);
 
-  const list = document.createElement("ul");
-  list.className = "list-group";
+  // Grouping by document type
+  const groupedChecks = {};
+  for (let check in inter_document_checks) {
+    const [docType, ...checkParts] = check.split(" - ");
+    const checkLabel = checkParts.join(" - ");
+    if (!groupedChecks[docType]) groupedChecks[docType] = [];
+    groupedChecks[docType].push({ label: checkLabel, passed: inter_document_checks[check] });
+  }
 
-  expectedDocs.forEach(docType => {
-    const li = document.createElement("li");
-    if (foundDocs.includes(docType)) {
-      li.className = "list-group-item list-group-item-success";
-      li.innerHTML = `✅ ${docType}`;
-    } else {
-      li.className = "list-group-item list-group-item-danger";
-      li.innerHTML = `❌ ${docType}`;
-    }
-    list.appendChild(li);
-  });
+  for (let docType in groupedChecks) {
+    const sectionTitle = document.createElement("h6");
+    sectionTitle.className = "mt-3";
+    sectionTitle.innerHTML = `📄 ${docType}`;
+    container.appendChild(sectionTitle);
 
-  container.appendChild(list);
+    const list = document.createElement("ul");
+    list.className = "list-group mb-3";
+
+    groupedChecks[docType].forEach(item => {
+      const li = document.createElement("li");
+      li.className = "list-group-item d-flex justify-content-between align-items-center";
+      li.innerHTML = `
+        <span>${item.label}</span>
+        <span class="badge ${item.passed ? 'bg-success' : 'bg-danger'}">
+          ${item.passed ? '✔️ Passed' : '❌ Failed'}
+        </span>
+      `;
+      list.appendChild(li);
+    });
+
+    container.appendChild(list);
+  }
+
+  const intraHeading = document.createElement("h5");
+  intraHeading.className = "mt-4";
+  intraHeading.innerHTML = "⚠️ Document Anomalies";
+  container.appendChild(intraHeading);
+
+  if (!intra_document_anomalies || intra_document_anomalies.length === 0) {
+    const noAnomalies = document.createElement("p");
+    noAnomalies.className = "text-success";
+    noAnomalies.innerHTML = "✅ No intra-document anomalies detected!";
+    container.appendChild(noAnomalies);
+  } else {
+    const anomalyList = document.createElement("ul");
+    anomalyList.className = "list-group";
+
+    intra_document_anomalies.forEach(anomaly => {
+      const li = document.createElement("li");
+
+      let bgClass = "list-group-item-secondary";
+      if (anomaly.severity === "High") bgClass = "list-group-item-danger";
+      else if (anomaly.severity === "Medium") bgClass = "list-group-item-warning";
+      else if (anomaly.severity === "Low") bgClass = "list-group-item-info";
+
+      li.className = `list-group-item ${bgClass}`;
+      li.innerHTML = `
+        ${getSeverityEmoji(anomaly.severity)} <strong>${anomaly.severity} Severity</strong><br>
+        <strong>${anomaly.type}:</strong> ${anomaly.details}
+      `;
+      anomalyList.appendChild(li);
+    });
+
+    container.appendChild(anomalyList);
+  }
 }
+
+// Render OCR Check
+function renderOCRCheck(basicData, detailedData) {
+    const container = document.getElementById("ocrContent");
+    container.innerHTML = "";
+  
+    const expectedDocs = [
+      "ID Proof(Passport, Driving License)",
+      "Bank Statement",
+      "Contract of Employment",
+      "Payslip",
+      "P60"
+    ];
+  
+    const foundDocs = basicData.ocr_check_report.map(page => page.document_type);
+  
+    // === Document Classification Section ===
+    const docSection = document.createElement("div");
+    docSection.className = "mb-4";  // Adds space
+    const docTitle = document.createElement("h5");
+    docTitle.textContent = "📄 Document Classification";
+    docSection.appendChild(docTitle);
+  
+    const docList = document.createElement("ul");
+    docList.className = "list-group";
+  
+    expectedDocs.forEach(docType => {
+      const li = document.createElement("li");
+      if (foundDocs.includes(docType)) {
+        li.className = "list-group-item list-group-item-success";
+        li.innerHTML = `✅ ${docType}`;
+      } else {
+        li.className = "list-group-item";
+        li.innerHTML = `❌ ${docType}`;
+        li.style.color = "red";
+        li.style.border = "1px solid red";
+        li.style.backgroundColor = "#fff";
+      }
+      docList.appendChild(li);
+    });
+  
+    docSection.appendChild(docList);
+    container.appendChild(docSection);
+  
+    // === Compliance Checks Section ===
+    const prelimSection = document.createElement("div");
+    prelimSection.className = "mt-5"; // Adds space before this block
+    const prelimTitle = document.createElement("h5");
+    prelimTitle.textContent = "🧪 Document Compliance Checks";
+    prelimSection.appendChild(prelimTitle);
+  
+    for (let docType of expectedDocs) {
+      const checks = detailedData.ocr_detailed_check[docType] || {};
+      if (Object.keys(checks).length === 0) continue;
+  
+      const docSubTitle = document.createElement("h6");
+      docSubTitle.className = "mt-3";
+      docSubTitle.textContent = `📄 ${docType}`;
+      prelimSection.appendChild(docSubTitle);
+  
+      const checkList = document.createElement("ul");
+      checkList.className = "list-group mb-3";
+  
+      for (let check in checks) {
+        const passed = checks[check];
+        const li = document.createElement("li");
+        li.className = "list-group-item d-flex justify-content-between align-items-center";
+  
+        const badgeClass = passed ? "bg-success text-white" : "text-danger border border-danger bg-white";
+  
+        li.innerHTML = `
+          <span>${check}</span>
+          <span class="badge ${badgeClass}">
+            ${passed ? '✔️' : '❌'}
+          </span>
+        `;
+        checkList.appendChild(li);
+      }
+  
+      prelimSection.appendChild(checkList);
+    }
+  
+    container.appendChild(prelimSection);
+  }
 
 // Render Field Extraction (grouped properly)
 function renderFieldExtraction(data) {
@@ -224,6 +301,7 @@ function renderFieldExtraction(data) {
 
   const grouped = {};
 
+  // Group fields per document type from all pages
   data.field_extraction_report.forEach(page => {
     const docType = page.document_type;
 
@@ -235,19 +313,21 @@ function renderFieldExtraction(data) {
     const scores = page.confidence_scores || {};
 
     for (let key in fields) {
-      if (!grouped[docType].fields[key] || fields[key]) {
+      // Store value only if not already set or newly extracted
+      if (!(key in grouped[docType].fields)) {
         grouped[docType].fields[key] = fields[key];
         grouped[docType].confidences[key] = scores[key];
       }
     }
   });
 
+  // Render each grouped document type
   Object.keys(grouped).forEach(docType => {
     const section = document.createElement("div");
     section.className = "mb-4";
 
     const heading = document.createElement("h5");
-    heading.textContent = `${docType}`;
+    heading.textContent = docType;
     section.appendChild(heading);
 
     const list = document.createElement("ul");
@@ -257,17 +337,26 @@ function renderFieldExtraction(data) {
     const scores = grouped[docType].confidences;
 
     for (let field in fields) {
+      const fieldLower = field.toLowerCase();
       const value = fields[field];
       const confidence = scores[field] !== undefined ? (scores[field] * 100).toFixed(1) : "N/A";
+
+      // Skip Passport Address specifically
+      if (docType === "ID Proof(Passport, Driving License)" && fieldLower.includes("address")) {
+        continue;
+      }
 
       const li = document.createElement("li");
       li.className = "list-group-item";
 
-      if (!value || value === "null" || value === null) {
-        li.innerHTML = `<span class="field-missing">${field}: Not Present</span> [Confidence: ${confidence}%]`;
+      const isOverdraft = fieldLower.includes("overdraft");
+
+      if (!value || value === "null" || value.toLowerCase() === "not present") {
+        li.innerHTML = `<span class="${isOverdraft ? "text-success" : "text-danger"}">${field}: Not Present</span> [Confidence: ${confidence}%]`;
       } else {
-        li.innerHTML = `<span class="field-present">${field}: ${value}</span> [Confidence: ${confidence}%]`;
+        li.innerHTML = `<span class="text-success">${field}: ${value}</span> [Confidence: ${confidence}%]`;
       }
+
       list.appendChild(li);
     }
 
@@ -302,10 +391,10 @@ function renderQualityReport(data) {
   thead.innerHTML = `
     <tr>
       <th>Document</th>
-      <th>Blurry</th>
-      <th>Blur Quality</th>
-      <th>Blank</th>
-      <th>Blank Quality</th>
+      <th>Page Blurry</th>
+      <th>Clarity Rating</th>
+      <th>Blank Page</th>
+      <th>Content Coverage</th>
     </tr>
   `;
   table.appendChild(thead);

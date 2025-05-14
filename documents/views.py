@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
+import json
 
 import os
 from collections import defaultdict
@@ -19,8 +20,11 @@ from .utils import (
     check_page_quality,
     check_ocr_completeness,
     detect_cross_document_anomalies,
+    detect_p60_cross_document_anomalies,
+    detect_contract_cross_document_anomalies,
     llm_full_page_analysis,
-    generate_memo_from_fields
+    generate_memo_from_fields,
+    detect_bank_statement_cross_document_anomalies
 )
 
 # ====== Testing Flag ======
@@ -195,9 +199,29 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
                 doc_type = page.document_type or f"unknown_page_{page.page_number}"
                 extracted_data[doc_type] = page.extracted_fields or {}
 
-            # === 🔥 New split here ===
+            # === 🔥 Anomaly Checks ===
+            # 1. Payslip (old one)
             inter_document_checks_result, intra_document_anomalies = detect_cross_document_anomalies(extracted_data)
 
+            # 2. P60-specific
+            p60_checks, p60_anomalies = detect_p60_cross_document_anomalies(extracted_data)
+
+            # 3. Contract of Employment-specific
+            contract_checks, contract_anomalies = detect_contract_cross_document_anomalies(extracted_data)
+
+            # 4. Bank Statement
+            bank_checks, bank_anomalies = detect_bank_statement_cross_document_anomalies(extracted_data)
+
+            # === Merge all results ===
+            inter_document_checks_result.update(p60_checks)
+            inter_document_checks_result.update(contract_checks)
+            inter_document_checks_result.update(bank_checks)
+
+
+            intra_document_anomalies.extend(p60_anomalies)
+            intra_document_anomalies.extend(contract_anomalies)
+            intra_document_anomalies.extend(bank_anomalies)
+            
             main_document_type = pages.first().document_type if pages.exists() else "Unknown"
 
             return Response({
@@ -305,6 +329,54 @@ class CustomerDocumentUploadViewSet(viewsets.ModelViewSet):
                 "contract_annual": f"£{contract_annual:.2f}",
                 "status": status_str,
                 "note": validation_note
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=True, methods=["get"], url_path="ocr-detailed-check")
+    def ocr_detailed_check(self, request, pk=None):
+        try:
+            document = self.get_object()
+            pages = document.pages.all()
+
+            extracted_data = {}
+            for page in pages:
+                doc_type = page.document_type or f"unknown_page_{page.page_number}"
+                extracted_data[doc_type] = page.extracted_fields or {}
+
+            from .utils import validate_payslip, validate_contract, validate_bank_statement, validate_p60
+
+            validation_results = {}
+
+            print("\n=== Starting OCR Detailed Check ===")
+
+            for doc_type, fields in extracted_data.items():
+                checks = {}
+                doc_type_lower = doc_type.lower()
+
+                print(f"\nChecking document: {doc_type}")
+
+                if "payslip" in doc_type_lower:
+                    checks = validate_payslip(fields)
+                elif "bank statement" in doc_type_lower:
+                    checks = validate_bank_statement(fields)
+                elif "contract" in doc_type_lower:
+                    checks = validate_contract(fields)
+                elif "p60" in doc_type_lower:
+                    checks = validate_p60(fields)
+
+                if checks:
+                    validation_results[doc_type] = checks
+
+            print("\n=== Completed OCR Detailed Check ===")
+            print(f"Validation Results: {json.dumps(validation_results, indent=2)}\n")
+
+            return Response({
+                "document_id": document.id,
+                "ocr_detailed_check": validation_results
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
